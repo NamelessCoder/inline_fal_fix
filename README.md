@@ -16,3 +16,23 @@ The workaround is implemented by hooking into DataHandler to perform the followi
 
 The result is a corrected database record structure for both the draft and placeholder records, which prevents the
 described duplication issue when the workspace is published.
+
+
+Installation
+------------
+
+The extension is available through Packagist:
+
+```
+composer require namelesscoder/inline-fal-fix
+```
+
+The extension can also be downloaded manually from GitHub and installed on non-composer enabled TYPO3 sites.
+
+
+Rationale
+---------
+
+The reason this extension exists is the rather long perspective of solving this problem in the TYPO3 core itself.
+This could take a significant amount of time - meanwhile, this extension is provided to work around the specific issue
+until an official fix can be released.
