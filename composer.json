@@ -1,0 +1,13 @@
+{
+  "name": "namelesscoder/inline-fal-fix",
+  "type": "typo3-cms-extension",
+  "autoload": {
+    "psr-4": {
+      "NamelessCoder\\InlineFalFix\\": "Classes/"
+    }
+  },
+  "require": {
+    "typo3/cms-workspaces": "^8.7|^9.0
+  }
+}
+
