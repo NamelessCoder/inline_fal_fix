@@ -54,11 +54,13 @@ class DataHandlerHook
                             $matchFields = [
                                 $configuration['foreign_field'] => $copiedUid
                             ];
-                            if ($configuration['foreign_table_field'] ?? false) {
+                            if (isset($configuration['foreign_table_field']) && $configuration['foreign_table_field']) {
                                 $matchFields[$configuration['foreign_table_field']] = $copiedTable;
                             }
-                            foreach ($configuration['foreign_match_fields'] ?? [] as $matchFieldName => $matchFieldValue) {
-                                $matchFields[$matchFieldName] = $matchFieldValue;
+                            if (isset($configuration['foreign_match_fields']) && is_array($configuration['foreign_match_fields'])) {
+                                foreach ($configuration['foreign_match_fields'] as $matchFieldName => $matchFieldValue) {
+                                    $matchFields[$matchFieldName] = $matchFieldValue;
+                                }
                             }
 
                             $fixed = $this->fixRelationValuesForRelatedRecords($configuration['foreign_table'], $matchFields) || $fixed;
@@ -105,14 +107,18 @@ class DataHandlerHook
     protected function getInlineRelationFieldsFromFlexFormDataStructure($table, $field, array $record)
     {
         $flexFormTools = GeneralUtility::makeInstance(FlexFormTools::class);
-        $dataSourceIdentifier = $flexFormTools->getDataStructureIdentifier(
-            $GLOBALS['TCA'][$table]['columns'][$field],
-            $table,
-            $field,
-            $record
-        );
+        if (method_exists($flexFormTools, 'getDataStructureIdentifier')) {
+            $dataSourceIdentifier = $flexFormTools->getDataStructureIdentifier(
+                $GLOBALS['TCA'][$table]['columns'][$field],
+                $table,
+                $field,
+                $record
+            );
 
-        $dataSource = $flexFormTools->parseDataStructureByIdentifier($dataSourceIdentifier);
+            $dataSource = $flexFormTools->parseDataStructureByIdentifier($dataSourceIdentifier);
+        } else {
+            $dataSource = BackendUtility::getFlexFormDS($GLOBALS['TCA'][$table]['columns'][$field]['config'], $record, $table, $field);
+        }
         return $this->extractInlineRelationFieldsFromDataStructureRecursive($dataSource);
     }
 
@@ -124,7 +130,7 @@ class DataHandlerHook
     {
         $fields = [];
         foreach ($structure as $name => $value) {
-            if (($value['TCEforms']['config']['type'] ?? null) === 'inline') {
+            if (isset($value['TCEforms']['config']['type']) && $value['TCEforms']['config']['type'] === 'inline') {
                 $fields[$name] = $value['TCEforms']['config'];
             } elseif (is_array($value)) {
                 $fields += $this->extractInlineRelationFieldsFromDataStructureRecursive($value);
