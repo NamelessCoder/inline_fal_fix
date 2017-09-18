@@ -61,7 +61,7 @@ class DataHandlerHook
                                 $matchFields[$matchFieldName] = $matchFieldValue;
                             }
 
-                            $fixed = $this->fixRelationValuesForRelatedRecords($configuration['foreign_table'], $copiedUid, $matchFields) || $fixed;
+                            $fixed = $this->fixRelationValuesForRelatedRecords($configuration['foreign_table'], $matchFields) || $fixed;
                         }
                     }
                     if ($fixed) {
@@ -129,44 +129,28 @@ class DataHandlerHook
             } elseif (is_array($value)) {
                 $fields += $this->extractInlineRelationFieldsFromDataStructureRecursive($value);
             }
-
         }
         return $fields;
     }
 
     /**
      * @param string $table
-     * @param integer $copiedUid
      * @param array $matchFields
      * @return bool
      */
-    protected function fixRelationValuesForRelatedRecords($table, $copiedUid, array $matchFields)
+    protected function fixRelationValuesForRelatedRecords($table, array $matchFields)
     {
         $affectedRecords = 0;
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll();
-        $queryBuilder->select(...array_merge(array_keys($matchFields), ['uid']))->from($table);
-        $predicates = [];
-        foreach ($matchFields as $fieldName => $fieldValue) {
-            $predicates[] = $queryBuilder->expr()->eq($fieldName, $queryBuilder->quote($fieldValue));
-        }
-        $queryBuilder->andWhere(...$predicates);
-        $relatedRecords = $queryBuilder->execute()->fetchAll();
+        $relatedRecords = $this->getRelatedRecords($table, $matchFields);
         foreach ($relatedRecords as $relatedRecord) {
             // Update the versioned record to force all match-field values to the same as $relatedRecord
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
-            $queryBuilder->getRestrictions()->removeAll();
             $predicates = [
-                $queryBuilder->expr()->eq('t3ver_oid', $relatedRecord['uid']),
-                $queryBuilder->expr()->eq('pid', -1),
-                $queryBuilder->expr()->eq('t3ver_wsid', $GLOBALS['BE_USER']->workspace)
+                't3ver_oid' => $relatedRecord['uid'],
+                'pid' => -1,
+                't3ver_wsid' => $GLOBALS['BE_USER']->workspace
             ];
             unset($relatedRecord['uid']);
-            $queryBuilder->update($table)->andWhere(...$predicates);
-            foreach ($relatedRecord as $fieldName => $fieldValue) {
-                $queryBuilder->set($fieldName, $fieldValue, true);
-            }
-            $affectedRecords += $queryBuilder->execute();
+            $affectedRecords += $this->updateTable($table, $relatedRecord, $predicates);
         }
         return $affectedRecords > 0;
     }
@@ -179,17 +163,74 @@ class DataHandlerHook
     protected function fixFlexFormSourceInRecord($table, $id, array $fields)
     {
         $record = BackendUtility::getRecord($table, $id);
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll();
-        $predicates = [
-            $queryBuilder->expr()->eq('t3ver_oid', $id),
-            $queryBuilder->expr()->eq('pid', -1),
-            $queryBuilder->expr()->eq('t3ver_wsid', $GLOBALS['BE_USER']->workspace)
-        ];
-        $queryBuilder->update($table)->andWhere(...$predicates);
+        $data = [];
         foreach ($fields as $fieldName) {
-            $queryBuilder->set($fieldName, $record[$fieldName], true);
+            $data[$fieldName] = $record[$fieldName];
         }
-        $queryBuilder->execute();
+        $conditions = [
+            't3ver_oid' => $id,
+            'pid' => -1,
+            't3ver_wsid' => $GLOBALS['BE_USER']->workspace
+        ];
+        $this->updateTable($table, $data, $conditions);
+    }
+
+    /**
+     * @param string $table
+     * @param array $matchFields
+     * @return array
+     */
+    protected function getRelatedRecords($table, array $matchFields)
+    {
+        if (class_exists(ConnectionPool::class)) {
+            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
+            $queryBuilder->getRestrictions()->removeAll();
+            $queryBuilder->select(...array_merge(array_keys($matchFields), ['uid']))->from($table);
+            $predicates = [];
+            foreach ($matchFields as $fieldName => $fieldValue) {
+                $predicates[] = $queryBuilder->expr()->eq($fieldName, $queryBuilder->quote($fieldValue));
+            }
+            $queryBuilder->andWhere(...$predicates);
+            $relatedRecords = $queryBuilder->execute()->fetchAll();
+        } else {
+            $conditions = [];
+            foreach ($matchFields as $matchFieldName => $matchFieldValue) {
+                $conditions[] = $matchFieldName . ' = \'' . $matchFieldValue . '\'';
+            }
+            $clause = implode(' AND ', $conditions);
+            $relatedRecords = (array) $GLOBALS['TYPO3_DB']->exec_SELECTgetRows('uid,' . implode(',', array_keys($matchFields)), $table, $clause);
+        }
+        return $relatedRecords;
+    }
+
+    /**
+     * @param string $table
+     * @param array $fields
+     * @param array $conditions
+     * @return integer
+     */
+    protected function updateTable($table, array $fields, array $conditions)
+    {
+        if (class_exists(ConnectionPool::class)) {
+            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
+            $queryBuilder->getRestrictions()->removeAll();
+            $predicates = [];
+            foreach ($conditions as $field => $value) {
+                $predicates[] = $queryBuilder->expr()->eq($field, $value);
+            }
+            $queryBuilder->update($table)->andWhere(...$predicates);
+            foreach ($fields as $fieldName => $fieldValue) {
+                $queryBuilder->set($fieldName, $fieldValue, true);
+            }
+            return $queryBuilder->execute();
+        } else {
+            $clauses = [];
+            foreach ($conditions as $matchFieldName => $matchFieldValue) {
+                $clauses[] = $matchFieldName . ' = \'' . $matchFieldValue . '\'';
+            }
+            $clause = implode(' AND ', $clauses);
+            $GLOBALS['TYPO3_DB']->exec_UPDATEquery($table, $clause, $fields);
+            return $GLOBALS['TYPO3_DB']->sql_affected_rows();
+        }
     }
 }
